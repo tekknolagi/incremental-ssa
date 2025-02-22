@@ -243,8 +243,9 @@ class Terminator(Instr):
     pass
 
 @ir
-class Return(Terminator):
-    value: Instr
+class Return(HasOperands, Terminator):
+    def __init__(self, value: Instr) -> None:
+        self.operands = (value,)
 
 @ir
 class Branch(Terminator):
@@ -282,6 +283,9 @@ class Block:
 
     def name(self) -> str:
         return f"bb{self.id}"
+
+    def has_terminator(self) -> bool:
+        return self.instrs and isinstance(self.instrs[-1], (Return, Branch, CondBranch))
 
 @dataclasses.dataclass
 class Function:
@@ -414,6 +418,8 @@ class Parser:
     def parse_program(self) -> Program:
         while self.peek():
             self.parse_toplevel()
+        if not self.block.has_terminator():
+            self.emit(Return(self.emit(Int(0))))
         return self.program
 
     def parse_toplevel(self):
@@ -520,6 +526,9 @@ def write_instr(f: io.BufferedWriter, gvn: InstrNumber, instr: Instr):
         f.write(f"CondBranch {gvn.name(instr.operands[0])}, {instr.iftrue.name()}, {instr.iffalse.name()}")
     elif isinstance(instr, Branch):
         f.write(f"Branch {instr.target.name()}")
+    elif isinstance(instr, HasOperands):
+        operands = [gvn.name(operand) for operand in instr.operands]
+        f.write(f"{type(instr).__name__} {', '.join(operands)}")
     else:
         f.write(str(instr))
 
