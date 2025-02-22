@@ -561,13 +561,9 @@ class Parser:
     def emit(self, instr: Instr) -> Instr:
         if isinstance(instr, Branch):
             self.preds[instr.target].add(self.block)
-            self.seal_block(self.block)
         elif isinstance(instr, CondBranch):
             self.preds[instr.iftrue].add(self.block)
             self.preds[instr.iffalse].add(self.block)
-            self.seal_block(self.block)
-        elif isinstance(instr, Return):
-            self.seal_block(self.block)
         self.block.emit(instr)
         return instr
 
