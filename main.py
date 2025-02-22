@@ -409,7 +409,8 @@ class Parser:
             self.incomplete_phis[block][variable] = result
         elif len(self.preds[block]) == 1:
             # Optimize the common case of one predecessor: no phi needed
-            result = self.read_variable(variable, self.preds[block][0])
+            (pred_value,) = self.preds[block]
+            result = self.read_variable(variable, pred_value)
         else:
             # Break potential cycles with operandless phi
             result = self.emit(Phi(block))
@@ -493,7 +494,7 @@ class Parser:
         block = self.block
         name = self.expect(TIdent)
         if self.match_punct(";"):
-            self.write_variable(name.value, block, Undefined())
+            self.write_variable(name.value, block, self.emit(Undefined()))
             return
         self.expect_punct("=")
         value = self.parse_expression()
