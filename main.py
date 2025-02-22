@@ -498,6 +498,7 @@ class Parser:
             self.parse_toplevel()
         if not self.block.has_terminator():
             self.emit(Return(self.emit(Int(0))))
+        self.seal_block(self.block)
         return self.program
 
     def parse_toplevel(self):
