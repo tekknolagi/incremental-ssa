@@ -536,7 +536,8 @@ def write_block(f: io.BufferedWriter, gvn: InstrNumber, block: Block):
     f.write(f"  {block.name()} {{\n")
     for instr in block.instrs:
         f.write("    ")
-        f.write(f"{gvn.name(instr)} = ")
+        if not isinstance(instr, Terminator):
+            f.write(f"{gvn.name(instr)} = ")
         write_instr(f, gvn, instr)
         f.write("\n")
     f.write("  }\n")
