@@ -1,3 +1,4 @@
+from __future__ import annotations
 import collections
 import dataclasses
 import io
@@ -230,9 +231,35 @@ class Add(HasOperands):
     def __init__(self, left: Instr, right: Instr) -> None:
         self.operands = [left, right]
 
+
+@dataclasses.dataclass
+class Less(HasOperands):
+    def __init__(self, left: Instr, right: Instr) -> None:
+        self.operands = [left, right]
+
+@dataclasses.dataclass
+class Terminator(Instr):
+    pass
+
+@dataclasses.dataclass
+class Branch(Terminator):
+    target: Block
+
+@dataclasses.dataclass
+class CondBranch(HasOperands, Terminator):
+    iftrue: Block
+    iffalse: Block
+
+    def __init__(self, cond: Instr, iftrue: Block, iffalse: Block) -> None:
+        self.operands = [cond]
+        self.iftrue = iftrue
+        self.iffalse = iffalse
+
 @dataclasses.dataclass
 class Block:
+    id: int
     instrs: list[Instr] = dataclasses.field(init=False, default_factory=list)
+    sealed: bool = False
 
     def emit(self, instr: Instr) -> Instr:
         self.instrs.append(instr)
@@ -244,26 +271,41 @@ class Block:
     def __eq__(self, other) -> bool:
         return self is other
 
+    @property
+    def filled(self) -> bool:
+        return self.instrs and isinstance(self.instrs[-1], Terminator)
+
+    def name(self) -> str:
+        return "bb{self.id}"
+
 @dataclasses.dataclass
 class Function:
+    name: str
     entry: Block
     blocks: list[Block]
 
-    def __init__(self) -> None:
-        self.entry = Block()
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.entry = Block(0)
         self.blocks = [self.entry]
 
     def new_block(self) -> Block:
-        result = Block()
+        result = Block(len(self.blocks))
         self.blocks.append(result)
         return result
+
+    def rpo(self) -> list[Block]:
+        return self.rpo_from(self.entry)
+
+    def rpo_from(self, block: Block):
+        raise NotImplementedError
 
 @dataclasses.dataclass
 class Program:
     functions: list[Function] = dataclasses.field(init=False, default_factory=list)
 
-    def new_function(self) -> Function:
-        result = Function()
+    def new_function(self, name: str) -> Function:
+        result = Function(name)
         self.functions.append(result)
         return result
 
@@ -297,7 +339,7 @@ class Parser:
     def __init__(self, lexer: Lexer) -> None:
         self.source = Peekable(lexer)
         self.program = Program()
-        self.func = self.program.new_function()
+        self.func = self.program.new_function("<toplevel>")
         self.block = self.func.entry
         self.current_def = collections.defaultdict(dict)
 
@@ -350,8 +392,18 @@ class Parser:
         return self.program
 
     def parse_toplevel(self):
+        if self.match(TFunc):
+            return self.parse_func_decl()
+        return self.parse_statement()
+
+    def parse_func_decl(self):
+        raise NotImplementedError("function declaration")
+
+    def parse_statement(self):
         if self.match(TVar):
             return self.parse_var_decl()
+        if self.match(TIf):
+            return self.parse_if()
         self.parse_error(f"Unexpected token `{self.peek()}'")
 
     def parse_var_decl(self):
@@ -361,6 +413,32 @@ class Parser:
         value = self.parse_expression()
         self.expect_punct(";")
         self.write_variable(name.value, block, value)
+
+    def parse_statement_block(self):
+        self.expect_punct("{")
+        while (peek := self.peek()):
+            if isinstance(peek, TPunct) and peek.value == "}":
+                break
+            self.parse_statement()
+        self.expect_punct("}")
+
+    def parse_if(self):
+        cond = self.parse_expression()
+        iftrue_block = self.func.new_block()
+        iffalse_block = self.func.new_block()
+        self.emit(CondBranch(cond, iftrue_block, iffalse_block))
+        self.block = iftrue_block
+        self.parse_statement_block()
+        if self.match(TElse):
+            join_block = self.func.new_block()
+            self.emit(Branch(join_block))
+            self.block = iffalse_block
+            self.parse_statement_block()
+            self.emit(Branch(join_block))
+            self.block = join_block
+        else:
+            self.emit(Branch(iffalse_block))
+            self.block = iffalse_block
 
     def emit(self, instr: Instr) -> Instr:
         self.block.emit(instr)
@@ -392,6 +470,8 @@ class Parser:
                     lhs = Mul(lhs, rhs)
                 elif op == "/":
                     lhs = Div(lhs, rhs)
+                elif op == "<":
+                    lhs = Less(lhs, rhs)
                 else:
                     raise NotImplementedError(f"binary op {op}")
             elif isinstance(token, TPunct) and token.value == "(":
@@ -400,11 +480,29 @@ class Parser:
                 break
         return lhs
 
+def write_block(f: io.BufferedWriter, block: Block):
+    f.write(f"  {block.name()} {{")
+    for instr in block.instrs:
+        raise NotImplementedError(type(instr))
+    f.write("  }")
+
+def write_function(f: io.BufferedWriter, function: Function):
+    f.write(f"func {function.name} {{\n")
+    for block in function.rpo():
+        write_block(f, block)
+    f.write("}\n")
+
+def write_program(f: io.BufferedWriter, program: Program):
+    for function in program.functions:
+        write_function(f, function)
+
 lexer = Lexer(PeekableString("""
 var LAST = 30;
 var a = 3;
 var b = 4;
-var c = a + b;
+if a < b {
+} else {
+}
 
 // A function declaration
 // func fibonacci(n int) int {
@@ -426,4 +524,6 @@ var c = a + b;
 """))
 parser = Parser(lexer)
 parser.parse_program()
-print(parser.current_def)
+with io.StringIO() as f:
+    write_program(f, parser.program)
+    print(f.getvalue())
