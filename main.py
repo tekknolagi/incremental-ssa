@@ -225,8 +225,12 @@ class Int(Instr):
     value: int
 
 @ir
+class Undefined(Instr):
+    pass
+
+@ir
 class HasOperands(Instr):
-    operands: tuple[Instr, ...]
+    operands: tuple[Instr, ...] = dataclasses.field(init=False, default=())
 
 @ir
 class Add(HasOperands):
@@ -237,6 +241,18 @@ class Add(HasOperands):
 class Less(HasOperands):
     def __init__(self, left: Instr, right: Instr) -> None:
         self.operands = (left, right)
+
+@ir
+class Phi(HasOperands):
+    block: Block
+
+    def append_operand(self, instr: Instr) -> None:
+        self.operands = self.operands + (instr,)
+
+@ir
+class Print(HasOperands):
+    def __init__(self, value: Instr) -> None:
+        self.operands = (value,)
 
 @ir
 class Terminator(Instr):
@@ -265,7 +281,6 @@ class CondBranch(HasOperands, Terminator):
 class Block:
     id: int
     instrs: list[Instr] = dataclasses.field(init=False, default_factory=list)
-    sealed: bool = False
 
     def emit(self, instr: Instr) -> Instr:
         self.instrs.append(instr)
@@ -364,6 +379,9 @@ class Parser:
     func: Function
     block: Block
     current_def: dict[str, dict[Block, Instr]]
+    sealed_blocks: set[Block]
+    incomplete_phis: dict[Block, dict[str, Instr]]
+    preds: dict[Block, set[Block]]
 
     def __init__(self, lexer: Lexer) -> None:
         self.source = Peekable(lexer)
@@ -371,6 +389,9 @@ class Parser:
         self.func = self.program.new_function("<toplevel>")
         self.block = self.func.entry
         self.current_def = collections.defaultdict(dict)
+        self.sealed_blocks = set()
+        self.incomplete_phis = collections.defaultdict(dict)
+        self.preds = collections.defaultdict(set)
 
     def write_variable(self, variable: str, block: Block, value: Instr):
         self.current_def[variable][block] = value
@@ -382,7 +403,26 @@ class Parser:
         return self.read_variable_recursive(variable, block)
 
     def read_variable_recursive(self, variable: str, block: Block) -> Instr:
-        raise NotImplementedError("read_variable_recursive")
+        if block not in self.sealed_blocks:
+            # Incomplete CFG
+            result = self.emit(Phi(block))
+            self.incomplete_phis[block][variable] = result
+        elif len(self.preds[block]) == 1:
+            # Optimize the common case of one predecessor: no phi needed
+            result = self.read_variable(variable, self.preds[block][0])
+        else:
+            # Break potential cycles with operandless phi
+            result = self.emit(Phi(block))
+            self.write_variable(variable, block, result)
+            result = self.add_phi_operands(variable, result)
+        self.write_variable(variable, block, result)
+        return result
+
+    def add_phi_operands(self, variable: str, phi: Phi):
+        # Determine operands from predecessors
+        for pred in self.preds[phi.block]:
+            phi.append_operand(self.read_variable(variable, pred))
+        return phi  # TODO(max): try_remove_trivial_phi
 
     def peek(self) -> Token|None:
         try:
@@ -398,6 +438,12 @@ class Parser:
 
     def match(self, token_type: type) -> Token|None:
         if isinstance(self.peek(), token_type):
+            return self.advance()
+        return None
+
+    def match_punct(self, value: str) -> Token|None:
+        peek = self.peek()
+        if isinstance(peek, TPunct) and peek.value == value:
             return self.advance()
         return None
 
@@ -435,11 +481,20 @@ class Parser:
             return self.parse_var_decl()
         if self.match(TIf):
             return self.parse_if()
-        self.parse_error(f"Unexpected token `{self.peek()}'")
+        if self.match(TPrint):
+            value = self.parse_expression()
+            self.expect_punct(";")
+            self.emit(Print(value))
+            return
+        self.parse_expression()
+        self.expect_punct(";")
 
     def parse_var_decl(self):
         block = self.block
-        name = self.match(TIdent)
+        name = self.expect(TIdent)
+        if self.match_punct(";"):
+            self.write_variable(name.value, block, Undefined())
+            return
         self.expect_punct("=")
         value = self.parse_expression()
         self.expect_punct(";")
@@ -472,13 +527,31 @@ class Parser:
             self.block = iffalse_block
 
     def emit(self, instr: Instr) -> Instr:
+        if isinstance(instr, Branch):
+            self.preds[instr.target].add(self.block)
+            self.seal_block(self.block)
+        elif isinstance(instr, CondBranch):
+            self.preds[instr.iftrue].add(self.block)
+            self.preds[instr.iffalse].add(self.block)
+            self.seal_block(self.block)
+        elif isinstance(instr, Return):
+            self.seal_block(self.block)
         self.block.emit(instr)
         return instr
+
+    def seal_block(self, block: Block):
+        for variable in self.incomplete_phis[block]:
+            self.add_phi_operands(variable, self.incomplete_phis[block][variable])
+        self.sealed_blocks.add(block)
 
     def parse_atom(self) -> Instr:
         if (token := self.match(TInt)):
             return self.emit(Int(token.value))
         if (token := self.match(TIdent)):
+            if self.match_punct("="):
+                rhs = self.parse_expression()
+                self.write_variable(token.value, self.block, rhs)
+                return rhs
             return self.read_variable(token.value, self.block)
         self.parse_error(f"Unexpected token `{self.peek()}'")
 
@@ -557,9 +630,13 @@ lexer = Lexer(PeekableString("""
 var LAST = 30;
 var a = 3;
 var b = 4;
+var c;
 if a < b {
+  c = 1;
 } else {
+  c = 2;
 }
+print c;
 
 // A function declaration
 // func fibonacci(n int) int {
