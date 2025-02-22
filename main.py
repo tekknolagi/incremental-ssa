@@ -214,44 +214,49 @@ class Lexer:
             raise NotImplementedError("Sorry, float not (yet) supported")
         return TInt(int(text))
 
-@dataclasses.dataclass
+ir = dataclasses.dataclass(unsafe_hash=True)
+
+@ir
 class Instr:
     pass
 
-@dataclasses.dataclass
+@ir
 class Int(Instr):
     value: int
 
-@dataclasses.dataclass
+@ir
 class HasOperands(Instr):
-    operands: list[Instr]
+    operands: tuple[Instr, ...]
 
-@dataclasses.dataclass
+@ir
 class Add(HasOperands):
     def __init__(self, left: Instr, right: Instr) -> None:
-        self.operands = [left, right]
+        self.operands = (left, right)
 
-
-@dataclasses.dataclass
+@ir
 class Less(HasOperands):
     def __init__(self, left: Instr, right: Instr) -> None:
-        self.operands = [left, right]
+        self.operands = (left, right)
 
-@dataclasses.dataclass
+@ir
 class Terminator(Instr):
     pass
 
-@dataclasses.dataclass
+@ir
+class Return(Terminator):
+    value: Instr
+
+@ir
 class Branch(Terminator):
     target: Block
 
-@dataclasses.dataclass
+@ir
 class CondBranch(HasOperands, Terminator):
     iftrue: Block
     iffalse: Block
 
     def __init__(self, cond: Instr, iftrue: Block, iffalse: Block) -> None:
-        self.operands = [cond]
+        self.operands = (cond,)
         self.iftrue = iftrue
         self.iffalse = iffalse
 
@@ -276,7 +281,7 @@ class Block:
         return self.instrs and isinstance(self.instrs[-1], Terminator)
 
     def name(self) -> str:
-        return "bb{self.id}"
+        return f"bb{self.id}"
 
 @dataclasses.dataclass
 class Function:
@@ -295,10 +300,30 @@ class Function:
         return result
 
     def rpo(self) -> list[Block]:
-        return self.rpo_from(self.entry)
+        result = []
+        self.po_from(self.entry, result, set())
+        result.reverse()
+        return result
 
-    def rpo_from(self, block: Block):
-        raise NotImplementedError
+    def po_from(self, block: Block, result: list[Block], visited: set[Block]):
+        if block in visited:
+            return
+        visited.add(block)
+        if not block.instrs:
+            # TODO(max): Figure out what to do with empty blocks?
+            result.append(block)
+            return
+        terminator = block.instrs[-1]
+        if isinstance(terminator, Return):
+            pass
+        elif isinstance(terminator, Branch):
+            self.po_from(terminator.target, result, visited)
+        elif isinstance(terminator, CondBranch):
+            self.po_from(terminator.iftrue, result, visited)
+            self.po_from(terminator.iffalse, result, visited)
+        else:
+            raise RuntimeError(f"Unexpected terminator {terminator}")
+        result.append(block)
 
 @dataclasses.dataclass
 class Program:
@@ -480,16 +505,38 @@ class Parser:
                 break
         return lhs
 
-def write_block(f: io.BufferedWriter, block: Block):
-    f.write(f"  {block.name()} {{")
+@dataclasses.dataclass
+class InstrNumber:
+    instrs: dict[Instr, int] = dataclasses.field(init=False, default_factory=dict)
+
+    def name(self, instr: Instr) -> str:
+        result = self.instrs.get(instr)
+        if result is None:
+            result = self.instrs[instr] = len(self.instrs)
+        return f"v{result}"
+
+def write_instr(f: io.BufferedWriter, gvn: InstrNumber, instr: Instr):
+    if isinstance(instr, CondBranch):
+        f.write(f"CondBranch {gvn.name(instr.operands[0])}, {instr.iftrue.name()}, {instr.iffalse.name()}")
+    elif isinstance(instr, Branch):
+        f.write(f"Branch {instr.target.name()}")
+    else:
+        f.write(str(instr))
+
+def write_block(f: io.BufferedWriter, gvn: InstrNumber, block: Block):
+    f.write(f"  {block.name()} {{\n")
     for instr in block.instrs:
-        raise NotImplementedError(type(instr))
-    f.write("  }")
+        f.write("    ")
+        f.write(f"{gvn.name(instr)} = ")
+        write_instr(f, gvn, instr)
+        f.write("\n")
+    f.write("  }\n")
 
 def write_function(f: io.BufferedWriter, function: Function):
+    gvn = InstrNumber()
     f.write(f"func {function.name} {{\n")
     for block in function.rpo():
-        write_block(f, block)
+        write_block(f, gvn, block)
     f.write("}\n")
 
 def write_program(f: io.BufferedWriter, program: Program):
