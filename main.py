@@ -258,6 +258,14 @@ class Less(HasOperands):
         return id(self)
 
 @ir
+class Equal(HasOperands):
+    def __init__(self, left: Instr, right: Instr) -> None:
+        self.operands = (left, right)
+
+    def __hash__(self) -> int:
+        return id(self)
+
+@ir
 class Phi(HasOperands):
     block: Block
 
@@ -393,6 +401,7 @@ class ParseError(Exception):
     pass
 
 PREC = {op: prec for prec, ops in enumerate([
+    ["=="],
     ["<"],
     ["+", "-"],
     ["*", "/"],
@@ -401,6 +410,7 @@ PREC = {op: prec for prec, ops in enumerate([
 OPS = set(PREC.keys())
 
 ASSOC = {
+    "==": "left",
     "<": "left",
     "+": "any",
     "-": "left",
@@ -634,6 +644,8 @@ class Parser:
                     lhs = self.emit(Div(lhs, rhs))
                 elif op == "<":
                     lhs = self.emit(Less(lhs, rhs))
+                elif op == "==":
+                    lhs = self.emit(Equal(lhs, rhs))
                 else:
                     raise NotImplementedError(f"binary op {op}")
             elif isinstance(token, TPunct) and token.value == "(":
