@@ -513,6 +513,8 @@ class Parser:
             return self.parse_var_decl()
         if self.match(TIf):
             return self.parse_if()
+        if self.match(TWhile):
+            return self.parse_while()
         if self.match(TPrint):
             value = self.parse_expression()
             self.expect_punct(";")
@@ -557,6 +559,22 @@ class Parser:
         else:
             self.emit(Branch(iffalse_block))
             self.block = iffalse_block
+
+    def parse_while(self):
+        header = self.func.new_block()
+        self.emit(Branch(header))
+        self.block = header
+        cond = self.parse_expression()
+        loop_body = self.func.new_block()
+        loop_end = self.func.new_block()
+        self.emit(CondBranch(cond, loop_body, loop_end))
+        self.seal_block(loop_body)
+        self.block = loop_body
+        self.parse_statement_block()
+        self.emit(Branch(header))
+        self.seal_block(header)
+        self.seal_block(loop_end)
+        self.block = loop_end
 
     def emit(self, instr: Instr) -> Instr:
         if isinstance(instr, Branch):
