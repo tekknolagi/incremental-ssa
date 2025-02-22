@@ -314,6 +314,11 @@ class Block:
     instrs: list[Instr] = dataclasses.field(init=False, default_factory=list)
 
     def emit(self, instr: Instr) -> Instr:
+        if isinstance(instr, Phi):
+            self.instrs.insert(0, instr)
+            return
+        if self.has_terminator():
+            raise RuntimeError(f"Cannot append {type(instr)} to filled block {self.name()}")
         self.instrs.append(instr)
         return instr
 
