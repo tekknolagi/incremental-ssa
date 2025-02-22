@@ -595,15 +595,15 @@ class Parser:
                 next_prec = op_prec + 1 if ASSOC[op] == "left" else op_prec
                 rhs = self.parse_expression(next_prec)
                 if op == "+":
-                    lhs = Add(lhs, rhs)
+                    lhs = self.emit(Add(lhs, rhs))
                 elif op == "-":
-                    lhs = Sub(lhs, rhs)
+                    lhs = self.emit(Sub(lhs, rhs))
                 elif op == "*":
-                    lhs = Mul(lhs, rhs)
+                    lhs = self.emit(Mul(lhs, rhs))
                 elif op == "/":
-                    lhs = Div(lhs, rhs)
+                    lhs = self.emit(Div(lhs, rhs))
                 elif op == "<":
-                    lhs = Less(lhs, rhs)
+                    lhs = self.emit(Less(lhs, rhs))
                 else:
                     raise NotImplementedError(f"binary op {op}")
             elif isinstance(token, TPunct) and token.value == "(":
