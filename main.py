@@ -214,7 +214,7 @@ class Lexer:
             raise NotImplementedError("Sorry, float not (yet) supported")
         return TInt(int(text))
 
-ir = dataclasses.dataclass(unsafe_hash=True)
+ir = dataclasses.dataclass
 
 @ir
 class Instr:
@@ -224,23 +224,38 @@ class Instr:
 class Int(Instr):
     value: int
 
+    def __hash__(self) -> int:
+        return id(self)
+
 @ir
 class Undefined(Instr):
     pass
 
+    def __hash__(self) -> int:
+        return id(self)
+
 @ir
 class HasOperands(Instr):
     operands: tuple[Instr, ...] = dataclasses.field(init=False, default=())
+
+    def __hash__(self) -> int:
+        return id(self)
 
 @ir
 class Add(HasOperands):
     def __init__(self, left: Instr, right: Instr) -> None:
         self.operands = (left, right)
 
+    def __hash__(self) -> int:
+        return id(self)
+
 @ir
 class Less(HasOperands):
     def __init__(self, left: Instr, right: Instr) -> None:
         self.operands = (left, right)
+
+    def __hash__(self) -> int:
+        return id(self)
 
 @ir
 class Phi(HasOperands):
@@ -249,23 +264,36 @@ class Phi(HasOperands):
     def append_operand(self, instr: Instr) -> None:
         self.operands = self.operands + (instr,)
 
+    def __hash__(self) -> int:
+        return id(self)
+
 @ir
 class Print(HasOperands):
     def __init__(self, value: Instr) -> None:
         self.operands = (value,)
 
+    def __hash__(self) -> int:
+        return id(self)
+
 @ir
 class Terminator(Instr):
-    pass
+    def __hash__(self) -> int:
+        return id(self)
 
 @ir
 class Return(HasOperands, Terminator):
     def __init__(self, value: Instr) -> None:
         self.operands = (value,)
 
+    def __hash__(self) -> int:
+        return id(self)
+
 @ir
 class Branch(Terminator):
     target: Block
+
+    def __hash__(self) -> int:
+        return id(self)
 
 @ir
 class CondBranch(HasOperands, Terminator):
@@ -276,6 +304,9 @@ class CondBranch(HasOperands, Terminator):
         self.operands = (cond,)
         self.iftrue = iftrue
         self.iffalse = iffalse
+
+    def __hash__(self) -> int:
+        return id(self)
 
 @dataclasses.dataclass
 class Block:
