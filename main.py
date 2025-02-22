@@ -499,6 +499,11 @@ class Parser:
         if not self.block.has_terminator():
             self.emit(Return(self.emit(Int(0))))
         self.seal_block(self.block)
+        for function in self.program.functions:
+            for block in function.blocks:
+                if block not in self.sealed_blocks:
+                    self.seal_block(block)
+                    # raise RuntimeError(f"Block {block.name()} should have been sealed but it was not")
         return self.program
 
     def parse_toplevel(self):
@@ -544,6 +549,7 @@ class Parser:
         self.expect_punct("}")
 
     def parse_if(self):
+        # TODO(max): Seal blocks
         cond = self.parse_expression()
         iftrue_block = self.func.new_block()
         iffalse_block = self.func.new_block()
@@ -673,6 +679,11 @@ def write_program(f: io.BufferedWriter, program: Program):
     for function in program.functions:
         write_function(f, function)
 
+def print_program(program: Program):
+    with io.StringIO() as f:
+        write_program(f, parser.program)
+        print(f.getvalue())
+
 lexer = Lexer(PeekableString("""
 var idx = 0;
 while idx < 10 {
@@ -681,7 +692,9 @@ while idx < 10 {
 print idx;
 """))
 parser = Parser(lexer)
-parser.parse_program()
-with io.StringIO() as f:
-    write_program(f, parser.program)
-    print(f.getvalue())
+try:
+    parser.parse_program()
+except RuntimeError:
+    print_program(parser.program)
+    raise
+print_program(parser.program)
