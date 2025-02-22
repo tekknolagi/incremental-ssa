@@ -674,34 +674,11 @@ def write_program(f: io.BufferedWriter, program: Program):
         write_function(f, function)
 
 lexer = Lexer(PeekableString("""
-var LAST = 30;
-var a = 3;
-var b = 4;
-var c;
-if a < b {
-  c = 1;
-} else {
-  c = 2;
+var idx = 0;
+while idx < 10 {
+    idx = idx + 1;
 }
-print c;
-
-// A function declaration
-// func fibonacci(n int) int {
-//     if n > 1 {
-//         return fibonacci(n-1) + fibonacci(n-2);
-//     } else {
-//         return 1;
-//     }
-// }
-// 
-// func main() int {
-//     var n int = 0.5;
-//     while n < LAST {
-//         print fibonacci(n);
-//         n = n + 1;
-//     }
-//     return 0;
-// }
+print idx;
 """))
 parser = Parser(lexer)
 parser.parse_program()
