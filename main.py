@@ -509,9 +509,9 @@ class Parser:
         self.block = loop_end
 
     def emit(self, instr: Instr) -> Instr:
-        if isinstance(instr, Branch):
+        if instr.opcode == "Branch":
             self.preds[instr.target].add(self.block)
-        elif isinstance(instr, CondBranch):
+        elif instr.opcode == "CondBranch":
             self.preds[instr.iftrue].add(self.block)
             self.preds[instr.iffalse].add(self.block)
         self.block.emit(instr)
