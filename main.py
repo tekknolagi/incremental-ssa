@@ -164,107 +164,61 @@ class Lexer:
             raise NotImplementedError("Sorry, float not (yet) supported")
         return TInt(int(text))
 
-ir = dataclasses.dataclass
-
-@ir
+@dataclasses.dataclass(unsafe_hash=False, eq=False)
 class Instr:
-    pass
+    opcode: str
+    operands: list[Instr]
 
-@ir
+    def is_terminator(self):
+        return self.opcode in ("Return", "Branch", "CondBranch")
+
+    def make_equal_to(self, other: Instr):
+        assert not self.is_terminator()
+        self.opcode = "Identity"
+        self.operands = [other]
+
+def Return(value: Instr):
+    return Instr("Return", [value])
+
+def Print(value: Instr):
+    return Instr("Print", [value])
+
+@dataclasses.dataclass(unsafe_hash=False, eq=False)
 class Int(Instr):
     value: int
 
-    def __hash__(self) -> int:
-        return id(self)
+    def __init__(self, value: int) -> None:
+        super().__init__("Int", [])
+        self.value = value
 
-@ir
-class Undefined(Instr):
-    pass
-
-    def __hash__(self) -> int:
-        return id(self)
-
-@ir
-class HasOperands(Instr):
-    operands: tuple[Instr, ...] = dataclasses.field(init=False, default=())
-
-    def __hash__(self) -> int:
-        return id(self)
-
-@ir
-class Add(HasOperands):
-    def __init__(self, left: Instr, right: Instr) -> None:
-        self.operands = (left, right)
-
-    def __hash__(self) -> int:
-        return id(self)
-
-@ir
-class Less(HasOperands):
-    def __init__(self, left: Instr, right: Instr) -> None:
-        self.operands = (left, right)
-
-    def __hash__(self) -> int:
-        return id(self)
-
-@ir
-class Equal(HasOperands):
-    def __init__(self, left: Instr, right: Instr) -> None:
-        self.operands = (left, right)
-
-    def __hash__(self) -> int:
-        return id(self)
-
-@ir
-class Phi(HasOperands):
+@dataclasses.dataclass(unsafe_hash=False, eq=False)
+class Phi(Instr):
     block: Block
 
-    def append_operand(self, instr: Instr) -> None:
-        self.operands = self.operands + (instr,)
+    def __init__(self, block: Block) -> None:
+        super().__init__("Phi", [])
+        self.block = block
 
-    def __hash__(self) -> int:
-        return id(self)
+    def append_operand(self, operand: Instr) -> None:
+        self.operands.append(operand)
 
-@ir
-class Print(HasOperands):
-    def __init__(self, value: Instr) -> None:
-        self.operands = (value,)
-
-    def __hash__(self) -> int:
-        return id(self)
-
-@ir
-class Terminator(Instr):
-    def __hash__(self) -> int:
-        return id(self)
-
-@ir
-class Return(HasOperands, Terminator):
-    def __init__(self, value: Instr) -> None:
-        self.operands = (value,)
-
-    def __hash__(self) -> int:
-        return id(self)
-
-@ir
-class Branch(Terminator):
+@dataclasses.dataclass(unsafe_hash=False, eq=False)
+class Branch(Instr):
     target: Block
 
-    def __hash__(self) -> int:
-        return id(self)
+    def __init__(self, target: Block) -> None:
+        super().__init__("Branch", [])
+        self.target = target
 
-@ir
-class CondBranch(HasOperands, Terminator):
+@dataclasses.dataclass(unsafe_hash=False, eq=False)
+class CondBranch(Instr):
     iftrue: Block
     iffalse: Block
 
     def __init__(self, cond: Instr, iftrue: Block, iffalse: Block) -> None:
-        self.operands = (cond,)
+        super().__init__("CondBranch", [cond])
         self.iftrue = iftrue
         self.iffalse = iffalse
-
-    def __hash__(self) -> int:
-        return id(self)
 
 @dataclasses.dataclass
 class Block:
@@ -272,7 +226,7 @@ class Block:
     instrs: list[Instr] = dataclasses.field(init=False, default_factory=list)
 
     def emit(self, instr: Instr) -> Instr:
-        if isinstance(instr, Phi):
+        if instr.opcode == "Phi":
             self.instrs.insert(0, instr)
             return
         if self.has_terminator():
@@ -288,13 +242,13 @@ class Block:
 
     @property
     def filled(self) -> bool:
-        return self.instrs and isinstance(self.instrs[-1], Terminator)
+        return self.has_terminator()
 
     def name(self) -> str:
         return f"bb{self.id}"
 
     def has_terminator(self) -> bool:
-        return self.instrs and isinstance(self.instrs[-1], (Return, Branch, CondBranch))
+        return self.instrs and self.instrs[-1].is_terminator()
 
 @dataclasses.dataclass
 class Function:
@@ -327,11 +281,11 @@ class Function:
             result.append(block)
             return
         terminator = block.instrs[-1]
-        if isinstance(terminator, Return):
+        if terminator.opcode == "Return":
             pass
-        elif isinstance(terminator, Branch):
+        elif terminator.opcode == "Branch":
             self.po_from(terminator.target, result, visited)
-        elif isinstance(terminator, CondBranch):
+        elif terminator.opcode == "CondBranch":
             self.po_from(terminator.iftrue, result, visited)
             self.po_from(terminator.iffalse, result, visited)
         else:
@@ -590,20 +544,9 @@ class Parser:
                 self.advance()
                 next_prec = op_prec + 1 if ASSOC[op] == "left" else op_prec
                 rhs = self.parse_expression(next_prec)
-                if op == "+":
-                    lhs = self.emit(Add(lhs, rhs))
-                elif op == "-":
-                    lhs = self.emit(Sub(lhs, rhs))
-                elif op == "*":
-                    lhs = self.emit(Mul(lhs, rhs))
-                elif op == "/":
-                    lhs = self.emit(Div(lhs, rhs))
-                elif op == "<":
-                    lhs = self.emit(Less(lhs, rhs))
-                elif op == "==":
-                    lhs = self.emit(Equal(lhs, rhs))
-                else:
-                    raise NotImplementedError(f"binary op {op}")
+                opcode = {"+": "Add", "-": "Sub", "*": "Mul", "/": "Div",
+                          "<": "Less", "==": "Equal"}
+                self.emit(Instr(opcode[op], [lhs, rhs]))
             elif isinstance(token, TPunct) and token.value == "(":
                 raise NotImplementedError("function application")
             else:
@@ -621,21 +564,24 @@ class InstrNumber:
         return f"v{result}"
 
 def write_instr(f: io.BufferedWriter, gvn: InstrNumber, instr: Instr):
-    if isinstance(instr, CondBranch):
-        f.write(f"CondBranch {gvn.name(instr.operands[0])}, {instr.iftrue.name()}, {instr.iffalse.name()}")
-    elif isinstance(instr, Branch):
-        f.write(f"Branch {instr.target.name()}")
-    elif isinstance(instr, HasOperands):
+    f.write(instr.opcode)
+    if instr.opcode == "CondBranch":
+        f.write(f" {gvn.name(instr.operands[0])}, {instr.iftrue.name()}, {instr.iffalse.name()}")
+    elif instr.opcode == "Branch":
+        f.write(f" {instr.target.name()}")
+    elif instr.opcode == "Int":
+        f.write(f" {instr.value}")
+    elif instr.operands:
         operands = [gvn.name(operand) for operand in instr.operands]
-        f.write(f"{type(instr).__name__} {', '.join(operands)}")
-    else:
-        f.write(str(instr))
+        f.write(f" {', '.join(operands)}")
+    elif type(instr) != Instr:
+        raise NotImplementedError(f"printing subclass of Instr {type(instr)}")
 
 def write_block(f: io.BufferedWriter, gvn: InstrNumber, block: Block):
     f.write(f"  {block.name()} {{\n")
     for instr in block.instrs:
         f.write("    ")
-        if not isinstance(instr, Terminator):
+        if not instr.is_terminator():
             f.write(f"{gvn.name(instr)} = ")
         write_instr(f, gvn, instr)
         f.write("\n")
