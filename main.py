@@ -38,80 +38,28 @@ class TInt(Token):
     value: int
 
 @dataclasses.dataclass
-class TBreak(Token):
-    pass
-
-@dataclasses.dataclass
-class TElse(Token):
-    pass
-
-@dataclasses.dataclass
-class TFalse(Token):
-    pass
-
-@dataclasses.dataclass
-class TFunc(Token):
-    pass
-
-@dataclasses.dataclass
-class TIf(Token):
-    pass
-
-@dataclasses.dataclass
-class TPrint(Token):
-    pass
-
-@dataclasses.dataclass
-class TReturn(Token):
-    pass
-
-@dataclasses.dataclass
-class TTrue(Token):
-    pass
-
-@dataclasses.dataclass
-class TWhile(Token):
-    pass
-
-@dataclasses.dataclass
-class TVar(Token):
-    pass
-
-@dataclasses.dataclass
-class TTypeInt(Token):
-    pass
-
-@dataclasses.dataclass
-class TTypeFloat(Token):
-    pass
-
-@dataclasses.dataclass
-class TChar(Token):
-    pass
-
-@dataclasses.dataclass
-class TTypeBool(Token):
-    pass
+class TKeyword(Token):
+    value: str
 
 @dataclasses.dataclass
 class TPunct(Token):
     value: str
 
 KEYWORDS = {
-    "break": TBreak(),
-    "else": TElse(),
-    "false": TFalse(),
-    "func": TFunc(),
-    "if": TIf(),
-    "print": TPrint(),
-    "return": TReturn(),
-    "true": TTrue(),
-    "while": TWhile(),
-    "var": TVar(),
-    "int": TTypeInt(),
-    "float": TTypeFloat(),
-    "char": TChar(),
-    "bool": TTypeBool(),
+    "break",
+    "else",
+    "false",
+    "func",
+    "if",
+    "print",
+    "return",
+    "true",
+    "while",
+    "var",
+    "int",
+    "float",
+    "char",
+    "bool",
 }
 
 PUNCTUATION = {
@@ -204,7 +152,9 @@ class Lexer:
         while (c := self.peek()).isalpha():
             text += c
             self.source.read(1)
-        return KEYWORDS.get(text) or TIdent(text)
+        if text in KEYWORDS:
+            return TKeyword(text)
+        return TIdent(text)
 
     def read_number(self, text: str) -> Token:
         while (c := self.peek()).isnumeric():
@@ -488,6 +438,12 @@ class Parser:
             return self.advance()
         return None
 
+    def match_keyword(self, value: str) -> Token|None:
+        peek = self.peek()
+        if isinstance(peek, TKeyword) and peek.value == value:
+            return self.advance()
+        return None
+
     def match_punct(self, value: str) -> Token|None:
         peek = self.peek()
         if isinstance(peek, TPunct) and peek.value == value:
@@ -522,7 +478,7 @@ class Parser:
         return self.program
 
     def parse_toplevel(self):
-        if self.match(TFunc):
+        if self.match_keyword("func"):
             return self.parse_func_decl()
         return self.parse_statement()
 
@@ -530,13 +486,13 @@ class Parser:
         raise NotImplementedError("function declaration")
 
     def parse_statement(self):
-        if self.match(TVar):
+        if self.match_keyword("var"):
             return self.parse_var_decl()
-        if self.match(TIf):
+        if self.match_keyword("if"):
             return self.parse_if()
-        if self.match(TWhile):
+        if self.match_keyword("while"):
             return self.parse_while()
-        if self.match(TPrint):
+        if self.match_keyword("print"):
             value = self.parse_expression()
             self.expect_punct(";")
             self.emit(Print(value))
@@ -571,7 +527,7 @@ class Parser:
         self.emit(CondBranch(cond, iftrue_block, iffalse_block))
         self.block = iftrue_block
         self.parse_statement_block()
-        if self.match(TElse):
+        if self.match_keyword("else"):
             join_block = self.func.new_block()
             self.emit(Branch(join_block))
             self.block = iffalse_block
